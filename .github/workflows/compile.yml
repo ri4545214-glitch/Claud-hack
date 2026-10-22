@@ -1,0 +1,36 @@
+name: compile
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: Project folder name
+        required: true
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and run
+        env:
+          P: ${{ github.event.inputs.project }}
+        run: |
+          mkdir -p build-output
+          OUT="build-output/$P.txt"
+          {
+            echo "== compile =="
+            if g++ -std=c++17 -O2 -Wall -o app $(find "projects/$P" -name '*.cpp') 2>&1; then
+              echo "== run =="
+              IN=/dev/null; [ -f "projects/$P/input.txt" ] && IN="projects/$P/input.txt"
+              timeout 10 ./app < "$IN" 2>&1
+              echo; echo "== exit code: $? =="
+            else
+              echo "== compile failed =="
+            fi
+          } > "$OUT" 2>&1 || true
+          git config user.name "cpp-ide-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add build-output
+          git commit -m "build output: $P" || true
+          git push
