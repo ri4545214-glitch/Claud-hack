@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pocket C++ IDE</title>
+<style>
+:root{--bg:#1e1e1e;--bar:#252526;--side:#2b2b2c;--fg:#d4d4d4;--mut:#858585;--acc:#0e7ad1;--ok:#3fb950;--err:#f85149}
+*{box-sizing:border-box}html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif}
+#app{display:flex;flex-direction:column;height:100%;padding-top:env(safe-area-inset-top)}
+header{display:flex;align-items:center;gap:6px;background:var(--bar);padding:6px}
+button{background:#3a3d41;color:var(--fg);border:0;border-radius:6px;padding:8px 12px;font-size:14px}
+button.run{background:var(--ok);color:#000;font-weight:700}
+#tabs{display:flex;overflow-x:auto;flex:1;gap:4px}
+.tab{padding:7px 10px;background:#2d2d2d;border-radius:6px;white-space:nowrap;color:var(--mut)}
+.tab.on{background:var(--bg);color:#fff;border-bottom:2px solid var(--acc)}
+#main{flex:1;position:relative;min-height:0}
+#editor{position:absolute;inset:0}
+#drawer{position:absolute;left:0;top:0;bottom:0;width:78%;max-width:320px;background:var(--side);z-index:5;transform:translateX(-100%);transition:.2s;padding:10px;overflow:auto}
+#drawer.open{transform:none;box-shadow:4px 0 20px #0008}
+.f{display:flex;justify-content:space-between;padding:10px 6px;border-bottom:1px solid #3333}
+.f.on{color:#fff}
+#keys{display:flex;overflow-x:auto;gap:4px;background:var(--bar);padding:4px}
+#keys button{padding:6px 11px;min-width:38px}
+#out{height:32%;background:#111;border-top:1px solid #333;display:flex;flex-direction:column}
+#out.hide{display:none}
+#outh{padding:5px 10px;color:var(--mut);display:flex;justify-content:space-between}
+#log{flex:1;margin:0;padding:8px 10px;overflow:auto;white-space:pre-wrap;font:12px ui-monospace,Menlo,monospace}
+dialog{background:var(--side);color:var(--fg);border:1px solid #444;border-radius:10px;width:92%;max-width:420px}
+dialog input{width:100%;margin:4px 0 10px;padding:9px;background:#1e1e1e;color:var(--fg);border:1px solid #444;border-radius:6px;font-size:15px}
+label{font-size:12px;color:var(--mut)}
+</style></head>
+<body><div id="app">
+<header>
+ <button id="menu">☰</button><div id="tabs"></div>
+ <button id="gear">⚙</button><button class="run" id="run">▶ Run</button>
+</header>
+<div id="main"><div id="drawer"></div><div id="editor"></div></div>
+<div id="keys"></div>
+<div id="out" class="hide"><div id="outh"><span id="stat">Output</span><span id="x">✕</span></div><pre id="log"></pre></div>
+</div>
+<dialog id="set"><b>GitHub settings</b><br><br>
+<label>Repo owner</label><input id="s_o" autocapitalize="off">
+<label>Repo name</label><input id="s_r" autocapitalize="off">
+<label>Branch</label><input id="s_b" value="main" autocapitalize="off">
+<label>Project folder</label><input id="s_p" value="myapp" autocapitalize="off">
+<label>Personal access token (Contents + Actions: read/write)</label><input id="s_t" type="password">
+<button id="save">Save</button> <button id="close">Close</button></dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+<script>
+const $=s=>document.querySelector(s),LS=localStorage;
+const J=(k,d)=>{try{return JSON.parse(LS.getItem(k))||d}catch(e){return d}};
+let cfg=J('cfg',{b:'main',p:'myapp'});
+let files=J('files',{'main.cpp':'#include <iostream>\nusing namespace std;\n\nint main(){\n    cout << "Hello from my phone!" << endl;\n    return 0;\n}\n'});
+let cur=Object.keys(files)[0],editor,models={};
+const save=()=>LS.setItem('files',JSON.stringify(files));
+const log=(t,c)=>{$('#out').classList.remove('hide');$('#log').textContent=t;$('#stat').textContent=c||'Output';if(editor)editor.layout()};
+
+function renderTabs(){
+ $('#tabs').innerHTML='';
+ Object.keys(files).forEach(n=>{const d=document.createElement('div');d.className='tab'+(n==cur?' on':'');d.textContent=n;d.onclick=()=>open(n);$('#tabs').append(d)});
+ const d=$('#drawer');d.innerHTML='<button id="nf">+ New file</button><br><br>';
+ Object.keys(files).forEach(n=>{const r=document.createElement('div');r.className='f'+(n==cur?' on':'');
+  r.innerHTML='<span>'+n+'</span><span class="del">🗑</span>';
+  r.firstChild.onclick=()=>{open(n);d.classList.remove('open')};
+  r.lastChild.onclick=()=>{if(Object.keys(files).length>1&&confirm('Delete '+n+'?')){delete files[n];(deleted=J('deleted',[])).push(n);LS.setItem('deleted',JSON.stringify(deleted));if(cur==n)cur=Object.keys(files)[0];save();open(cur)}};
+  d.append(r)});
+ $('#nf').onclick=()=>{let n=prompt('File name (e.g. util.cpp, util.h)');if(n&&!files[n]){files[n]='';save();open(n);$('#drawer').classList.remove('open')}};
+}
+function open(n){cur=n;if(editor){if(!models[n])models[n]=monaco.editor.createModel(files[n],n.endsWith('.txt')?'plaintext':'cpp');editor.setModel(models[n])}renderTabs()}
+
+require.config({paths:{vs:'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs'}});
+window.MonacoEnvironment={getWorkerUrl:()=>URL.createObjectURL(new Blob(["self.MonacoEnvironment={baseUrl:'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/'};importScripts('https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/base/worker/workerMain.js');"],{type:'text/javascript'}))};
+require(['vs/editor/editor.main'],()=>{
+ editor=monaco.editor.create($('#editor'),{theme:'vs-dark',automaticLayout:true,fontSize:15,minimap:{enabled:false},wordWrap:'on',scrollBeyondLastLine:false});
+ editor.onDidChangeModelContent(()=>{files[cur]=editor.getValue();save()});
+ open(cur);
+});
+
+['{','}','(',')','[',']',';','<','>','"',"'",'#','&','*','=',':','/','\t'].forEach(k=>{
+ const b=document.createElement('button');b.textContent=k=='\t'?'Tab':k;
+ b.onmousedown=e=>e.preventDefault();
+ b.onclick=()=>{editor.focus();editor.trigger('kb','type',{text:k})};$('#keys').append(b)});
+
+$('#menu').onclick=()=>$('#drawer').classList.toggle('open');
+$('#x').onclick=()=>{$('#out').classList.add('hide');editor.layout()};
+$('#gear').onclick=()=>{$('#s_o').value=cfg.o||'';$('#s_r').value=cfg.r||'';$('#s_b').value=cfg.b||'main';$('#s_p').value=cfg.p||'myapp';$('#s_t').value=cfg.t||'';$('#set').showModal()};
+$('#close').onclick=()=>$('#set').close();
+$('#save').onclick=()=>{cfg={o:$('#s_o').value.trim(),r:$('#s_r').value.trim(),b:$('#s_b').value.trim()||'main',p:$('#s_p').value.trim()||'myapp',t:$('#s_t').value.trim()};LS.setItem('cfg',JSON.stringify(cfg));$('#set').close()};
+
+const b64=s=>btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+const unb64=s=>new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\n/g,'')),c=>c.charCodeAt(0)));
+async function gh(path,opt={}){
+ const r=await fetch('https://api.github.com/repos/'+cfg.o+'/'+cfg.r+path,{...opt,headers:{Authorization:'Bearer '+cfg.t,Accept:'application/vnd.github+json','Content-Type':'application/json'}});
+ if(!r.ok&&r.status!=404)throw new Error(r.status+' '+(await r.text()).slice(0,200));
+ return r;
+}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+$('#run').onclick=async()=>{
+ if(!cfg.o||!cfg.r||!cfg.t){$('#gear').click();return}
+ const btn=$('#run');btn.disabled=true;
+ try{
+  const dir='projects/'+cfg.p+'/';
+  for(const n in files){
+   log('Uploading '+n+'…','Uploading');
+   const p=encodeURIComponent(dir+n).replace(/%2F/g,'/');
+   const ex=await gh('/contents/'+p+'?ref='+cfg.b);
+   const sha=ex.status==200?(await ex.json()).sha:undefined;
+   if(ex.status==200&&unb64((await (await gh('/contents/'+p+'?ref='+cfg.b)).json()).content)===files[n])continue;
+   await gh('/contents/'+p,{method:'PUT',body:JSON.stringify({message:'edit '+n,content:b64(files[n]),branch:cfg.b,sha})});
+  }
+  for(const n of J('deleted',[])){
+   const p=encodeURIComponent(dir+n).replace(/%2F/g,'/');const ex=await gh('/contents/'+p+'?ref='+cfg.b);
+   if(ex.status==200)await gh('/contents/'+p,{method:'DELETE',body:JSON.stringify({message:'delete '+n,sha:(await ex.json()).sha,branch:cfg.b})});
+  }
+  LS.setItem('deleted','[]');
+  const t0=Date.now()-5000;
+  log('Starting build…','Building');
+  const d=await gh('/actions/workflows/compile.yml/dispatches',{method:'POST',body:JSON.stringify({ref:cfg.b,inputs:{project:cfg.p}})});
+  if(d.status==404)throw new Error('compile.yml not found. Add .github/workflows/compile.yml to the repo.');
+  let run=null;
+  for(let i=0;i<60;i++){
+   await sleep(3000);
+   const rs=(await(await gh('/actions/workflows/compile.yml/runs?event=workflow_dispatch&per_page=5')).json()).workflow_runs||[];
+   run=rs.find(r=>new Date(r.created_at).getTime()>=t0);
+   if(run){log('Build '+run.status+'…','Building');if(run.status=='completed')break}
+  }
+  if(!run||run.status!='completed')throw new Error('Timed out waiting for build.');
+  const res=await gh('/contents/build-output/'+encodeURIComponent(cfg.p)+'.txt?ref='+cfg.b+'&t='+Date.now());
+  if(res.status!=200)throw new Error('No output found. Check the Actions tab in your repo.');
+  const txt=unb64((await res.json()).content);
+  log(txt,run.conclusion=='success'&&!/compile failed/.test(txt)?'✔ Done':'✖ Failed');
+ }catch(e){log(String(e.message||e),'Error')}
+ btn.disabled=false;
+};
+if('serviceWorker' in navigator){}
+</script></body></html>
